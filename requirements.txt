@@ -1,0 +1,5 @@
+Pegamoid==2.12.4
+numpy>=1.20
+vtk>=9.0
+h5py>=3.0
+Pillow>=9.0
