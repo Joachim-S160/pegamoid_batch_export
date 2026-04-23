@@ -98,6 +98,14 @@ def _import_pegamoid_orbitals():
 _pegamoid = _import_pegamoid_orbitals()
 Orbitals = _pegamoid.Orbitals
 
+# On headless systems (no DISPLAY/WAYLAND_DISPLAY) force VTK to use EGL
+# offscreen rendering before the window factory is initialised.
+# Must come before "import vtk" — without this, VTK defaults to
+# vtkXOpenGLRenderWindow which requires a DISPLAY and crashes on HPC.
+_headless = not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+if _headless:
+    os.environ.setdefault('VTK_DEFAULT_RENDER_WINDOW_OFFSCREEN', 'true')
+
 import vtk
 from vtk.util import numpy_support
 
@@ -288,8 +296,14 @@ def render_orbital(orbitals_obj, orb_index, xf, yf, zf, origin, spacing, dims,
     light.SetFocalPoint(0, 0, 0)
     renderer.AddLight(light)
 
-    # Offscreen render window
-    render_window = vtk.vtkRenderWindow()
+    # Offscreen render window.
+    # On headless nodes, explicitly use EGL so VTK never tries to connect
+    # to a DISPLAY. vtkXOpenGLRenderWindow ignores SetOffScreenRendering
+    # and bus-errors when no X server is present.
+    if _headless and hasattr(vtk, 'vtkEGLRenderWindow'):
+        render_window = vtk.vtkEGLRenderWindow()
+    else:
+        render_window = vtk.vtkRenderWindow()
     render_window.SetOffScreenRendering(True)
     render_window.SetSize(width, height)
     render_window.AddRenderer(renderer)
