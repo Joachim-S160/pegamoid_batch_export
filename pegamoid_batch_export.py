@@ -426,27 +426,30 @@ Examples:
                         help='Output directory for PNG files (default: ./orbitals)')
     parser.add_argument('--orbitals', type=str, default=None,
                         help='Comma-separated list of orbital indices (1-based)')
-    parser.add_argument('--active', action='store_true',
-                        help='Auto-select active space orbitals from MO_TYPEINDICES')
-    parser.add_argument('--neighbors', '-n', type=int, default=0,
-                        help='Include N neighbor orbitals on each side of active space')
+    parser.add_argument('--active', action=argparse.BooleanOptionalAction, default=True,
+                        help='Auto-select active space orbitals from MO_TYPEINDICES (default: on)')
+    parser.add_argument('--neighbors', '-n', type=int, default=10,
+                        help='Include N neighbor orbitals on each side of active space (default: 10)')
     parser.add_argument('--isovalue', type=float, default=0.03,
                         help='Isosurface cutoff value (default: 0.03)')
     parser.add_argument('--resolution', '-r', type=int, default=60,
                         help='Grid points per axis (default: 60)')
     parser.add_argument('--padding', type=float, default=10.0,
-                        help='Box padding around molecule in Bohr (default: 10.0)')
+                        help='Extra space around molecule bounding box in Bohr (default: 10.0)')
     parser.add_argument('--width', type=int, default=800, help='Image width (default: 800)')
     parser.add_argument('--height', type=int, default=600, help='Image height (default: 600)')
     parser.add_argument('--montage-cols', type=int, default=4,
                         help='Number of columns in montage (default: 4)')
     parser.add_argument('--no-montage', action='store_true', help='Skip montage creation')
     parser.add_argument('--opacity', type=float, default=0.7, help='Orbital opacity (default: 0.7)')
-    parser.add_argument('--camera', type=str, default='x',
+    parser.add_argument('--camera', type=str, default='45,30',
                         help='Camera direction: x, y, z, or azimuth,elevation in degrees '
-                             '(default: x). Examples: "x", "z", "20,15", "45,30"')
+                             '(default: 45,30). Examples: "x", "z", "20,15"')
     parser.add_argument('--sort', type=str, default='energy', choices=['energy', 'index'],
                         help='Sort orbitals by energy or index (default: energy)')
+    parser.add_argument('--colorful-background', action=argparse.BooleanOptionalAction, default=True,
+                        help='Color background by orbital type: pastel green for active '
+                             '(RAS1/2/3), light blue for core/virtual (default: on)')
 
     args = parser.parse_args()
 
@@ -507,9 +510,19 @@ Examples:
 
         print(f"Rendering {label}")
 
+        if args.colorful_background and fmt == 'hdf5' and idx < len(orbital_info):
+            orb_type = orbital_info[idx]['type']
+            if orb_type in ('1', '2', '3'):
+                bg = (0.78, 0.94, 0.78)   # pastel green — active (RAS1/2/3)
+            else:
+                bg = (0.80, 0.88, 0.96)   # pastel blue — core / virtual
+        else:
+            bg = (1.0, 1.0, 1.0)
+
         vtk_image = render_orbital(orb, idx, xf, yf, zf, origin, spacing, dims,
                                    isovalue=args.isovalue,
                                    width=args.width, height=args.height,
+                                   bg_color=bg,
                                    opacity=args.opacity, camera=args.camera)
 
         png_path = os.path.join(args.output_dir, f"{basename}_mo{orb_num:03d}.png")
