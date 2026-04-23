@@ -1,4 +1,5 @@
 Pegamoid==2.12.4
+PyQt5>=5.15
 numpy>=1.20
 vtk>=9.0
 h5py>=3.0
