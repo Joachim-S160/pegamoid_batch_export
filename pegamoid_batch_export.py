@@ -21,6 +21,38 @@ import types
 import numpy as np
 
 # ---------------------------------------------------------------------------
+# Headless display setup — must run before any VTK/Qt initialisation
+# ---------------------------------------------------------------------------
+
+def _ensure_display():
+    """On headless systems, relaunch under xvfb-run or fall back to EGL.
+
+    xvfb-run creates a virtual X framebuffer and re-executes this script
+    inside it, providing a real X11 display without a physical screen.
+    This is the most reliable approach on CPU-only HPC nodes where EGL/Mesa
+    software rendering is unavailable.
+
+    The _PEGAMOID_XVFB_WRAPPED guard prevents infinite re-launches.
+    """
+    if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
+        return  # display already available
+    if os.environ.get('_PEGAMOID_XVFB_WRAPPED'):
+        return  # already inside xvfb-run, don't loop
+
+    xvfb = shutil.which('xvfb-run')
+    if xvfb:
+        env = dict(os.environ)
+        env['_PEGAMOID_XVFB_WRAPPED'] = '1'
+        sys.exit(os.execvpe(xvfb, [xvfb, '-a', '--', sys.executable] + sys.argv, env))
+
+    # xvfb-run not available — fall back to VTK EGL offscreen.
+    # Must be set before "import vtk" so VTK's window factory uses EGL.
+    os.environ.setdefault('VTK_DEFAULT_RENDER_WINDOW_OFFSCREEN', 'true')
+
+
+_ensure_display()
+
+# ---------------------------------------------------------------------------
 # Pegamoid import
 # ---------------------------------------------------------------------------
 # Pegamoid installs as a single executable script (pegamoid.py), not as an
@@ -98,13 +130,7 @@ def _import_pegamoid_orbitals():
 _pegamoid = _import_pegamoid_orbitals()
 Orbitals = _pegamoid.Orbitals
 
-# On headless systems (no DISPLAY/WAYLAND_DISPLAY) force VTK to use EGL
-# offscreen rendering before the window factory is initialised.
-# Must come before "import vtk" — without this, VTK defaults to
-# vtkXOpenGLRenderWindow which requires a DISPLAY and crashes on HPC.
 _headless = not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
-if _headless:
-    os.environ.setdefault('VTK_DEFAULT_RENDER_WINDOW_OFFSCREEN', 'true')
 
 import vtk
 from vtk.util import numpy_support
