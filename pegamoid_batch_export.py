@@ -17,6 +17,7 @@ import os
 import shutil
 import sys
 import types
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
@@ -448,6 +449,42 @@ def detect_format(filepath):
 
 
 # ---------------------------------------------------------------------------
+# Parallel worker
+# ---------------------------------------------------------------------------
+
+def _render_worker(task):
+    """Module-level worker: open own Orbitals instance, render one orbital, save PNG."""
+    (filepath, fmt, orbital_info, idx,
+     xf, yf, zf, origin, spacing, dims,
+     isovalue, width, height, opacity, camera,
+     colorful_background, output_dir, basename) = task
+
+    orb = Orbitals(filepath, fmt)
+    orb_num = idx + 1
+
+    if fmt == 'hdf5' and idx < len(orbital_info):
+        info = orbital_info[idx]
+        label = f"MO {orb_num} | {info['type']} | E={info['energy']:.4f} | occ={info['occup']:.2f}"
+        if colorful_background:
+            bg = (0.78, 0.94, 0.78) if info['type'] in ('1', '2', '3') else (0.80, 0.88, 0.96)
+        else:
+            bg = (1.0, 1.0, 1.0)
+    else:
+        label = f"MO {orb_num}"
+        bg = (1.0, 1.0, 1.0)
+
+    print(f"  [pid {os.getpid()}] Computing orbital {orb_num}...", flush=True)
+    vtk_image = render_orbital(orb, idx, xf, yf, zf, origin, spacing, dims,
+                               isovalue=isovalue, width=width, height=height,
+                               bg_color=bg, opacity=opacity, camera=camera)
+
+    png_path = os.path.join(output_dir, f"{basename}_mo{orb_num:03d}.png")
+    save_vtk_image_as_png(vtk_image, png_path)
+    print(f"  [pid {os.getpid()}] Saved: {png_path}", flush=True)
+    return png_path, label
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -490,6 +527,9 @@ Examples:
     parser.add_argument('--colorful-background', action=argparse.BooleanOptionalAction, default=True,
                         help='Color background by orbital type: pastel green for active '
                              '(RAS1/2/3), light blue for core/virtual (default: on)')
+    parser.add_argument('--jobs', '-j', type=int, default=1,
+                        help='Number of parallel worker processes (default: 1). '
+                             'Each worker renders one orbital at a time using one CPU core.')
 
     args = parser.parse_args()
 
@@ -534,43 +574,50 @@ Examples:
     xf, yf, zf, origin, spacing, dims = build_grid(orb, args.resolution, args.padding)
 
     # Render each orbital
-    image_paths = []
-    labels = []
     basename = os.path.splitext(os.path.basename(filepath))[0]
 
-    for idx in selected:
-        orb_num = idx + 1  # 1-based for display
-
-        # Build label
-        if fmt == 'hdf5' and idx < len(orbital_info):
-            info = orbital_info[idx]
-            label = f"MO {orb_num} | {info['type']} | E={info['energy']:.4f} | occ={info['occup']:.2f}"
-        else:
-            label = f"MO {orb_num}"
-
-        print(f"Rendering {label}")
-
-        if args.colorful_background and fmt == 'hdf5' and idx < len(orbital_info):
-            orb_type = orbital_info[idx]['type']
-            if orb_type in ('1', '2', '3'):
-                bg = (0.78, 0.94, 0.78)   # pastel green — active (RAS1/2/3)
+    if args.jobs == 1:
+        # Sequential path — reuse the already-loaded orb instance
+        image_paths = []
+        labels = []
+        for idx in selected:
+            orb_num = idx + 1
+            if fmt == 'hdf5' and idx < len(orbital_info):
+                info = orbital_info[idx]
+                label = f"MO {orb_num} | {info['type']} | E={info['energy']:.4f} | occ={info['occup']:.2f}"
+                if args.colorful_background:
+                    bg = (0.78, 0.94, 0.78) if info['type'] in ('1', '2', '3') else (0.80, 0.88, 0.96)
+                else:
+                    bg = (1.0, 1.0, 1.0)
             else:
-                bg = (0.80, 0.88, 0.96)   # pastel blue — core / virtual
-        else:
-            bg = (1.0, 1.0, 1.0)
+                label = f"MO {orb_num}"
+                bg = (1.0, 1.0, 1.0)
 
-        vtk_image = render_orbital(orb, idx, xf, yf, zf, origin, spacing, dims,
-                                   isovalue=args.isovalue,
-                                   width=args.width, height=args.height,
-                                   bg_color=bg,
-                                   opacity=args.opacity, camera=args.camera)
-
-        png_path = os.path.join(args.output_dir, f"{basename}_mo{orb_num:03d}.png")
-        save_vtk_image_as_png(vtk_image, png_path)
-        print(f"  Saved: {png_path}")
-
-        image_paths.append(png_path)
-        labels.append(label)
+            print(f"Rendering {label}")
+            vtk_image = render_orbital(orb, idx, xf, yf, zf, origin, spacing, dims,
+                                       isovalue=args.isovalue,
+                                       width=args.width, height=args.height,
+                                       bg_color=bg,
+                                       opacity=args.opacity, camera=args.camera)
+            png_path = os.path.join(args.output_dir, f"{basename}_mo{orb_num:03d}.png")
+            save_vtk_image_as_png(vtk_image, png_path)
+            print(f"  Saved: {png_path}")
+            image_paths.append(png_path)
+            labels.append(label)
+    else:
+        # Parallel path — each worker opens its own Orbitals instance
+        print(f"Rendering {len(selected)} orbitals with {args.jobs} parallel workers...")
+        tasks = [
+            (filepath, fmt, orbital_info, idx,
+             xf, yf, zf, origin, spacing, dims,
+             args.isovalue, args.width, args.height, args.opacity, args.camera,
+             args.colorful_background, args.output_dir, basename)
+            for idx in selected
+        ]
+        with ProcessPoolExecutor(max_workers=args.jobs) as pool:
+            results = list(pool.map(_render_worker, tasks))
+        image_paths = [r[0] for r in results]
+        labels = [r[1] for r in results]
 
     # Create montage
     if not args.no_montage and len(image_paths) > 1:

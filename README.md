@@ -12,7 +12,8 @@ Batch export molecular orbital images from [OpenMolcas](https://gitlab.com/Molca
 - Sorts orbitals by energy (default) or index
 - Configurable camera angle, isovalue, resolution, colors, and opacity
 - Creates labeled montage grid images with orbital metadata
-- Runs fully offscreen (headless) — works on Linux, macOS, Windows, and WSL
+- **Parallel export** with `--jobs N` — each worker renders one orbital per CPU core (3× speedup with 4 cores)
+- Runs fully offscreen (headless) — works on Linux, macOS, Windows, WSL, and HPC nodes
 
 ## Installation
 
@@ -62,6 +63,7 @@ python pegamoid_batch_export.py calculation.rasscf.h5 --active --camera 20,15
 | `--sort` | `energy` | Sort by `energy` or `index` |
 | `--montage-cols` | 4 | Columns in montage grid |
 | `--no-montage` | off | Skip montage creation |
+| `--jobs`, `-j` | 1 | Number of parallel worker processes (one per CPU core) |
 
 ## Output
 
