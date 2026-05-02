@@ -157,11 +157,15 @@ and `dashboard/static/images/final/system_N/` (matching the stage keys).
 
 ### Per-geometry active space override (autoCAS pipelines)
 
-When the `pergeom/` h5 files come from an autoCAS pipeline, the CASSCF is typically
-run with the **union** orbital window (e.g. CAS(10,8) for all geometries), even though
-autoCAS selected a smaller per-geometry active space at some geometries (e.g. CAS(6,6)
-at the dissociation limit). The h5 `MO_TYPEINDICES` reflects the union window, so the
-script would wrongly report CAS(10,8) everywhere.
+In the autoCAS workflow, each geometry is first treated with a **DMRGSCF on the full
+atomic valence CAS** (e.g. CAS(10,8) for PbO). The orbital entropies and mutual
+information from that calculation are used to select a smaller, geometry-specific active
+space (e.g. CAS(6,6) at the dissociation limit). After all geometries are processed, the
+union of the per-geometry selections is used for the final CASSCF run.
+
+As a result, the `pergeom/` h5 files are DMRGSCF outputs computed with the full valence
+CAS window, not with the smaller per-geometry selection. `MO_TYPEINDICES` reflects that
+full window, so reading it directly would wrongly report CAS(10,8) for every geometry.
 
 To get the correct per-geometry sizes, provide the `per_geometry_cas_spaces` file
 written by the autoCAS pipeline:
@@ -194,7 +198,8 @@ system system_1: CAS(6,6) indices: [41, 42, 44, 45, 46, 47]
 Indices are 0-based Python indices; the script converts them to 1-based MO numbers.
 The `CAS(n_e, n_o)` values are used directly for the dashboard labels.
 If no such file is found, the script falls back to reading active MOs from h5
-`MO_TYPEINDICES` — appropriate when each h5 was computed with its own active space.
+`MO_TYPEINDICES` — correct when each h5 was computed with its own dedicated active
+space (e.g. plain CASSCF without a preceding DMRG entropy step).
 
 ---
 
